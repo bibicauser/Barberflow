@@ -299,11 +299,16 @@
       <h2>Serviços</h2>
       <div id="pb-services"></div>
 
+      <h2 style="margin-top:16px;">Produtos (opcional)</h2>
+      <div id="pb-products"></div>
+
       <h2 style="margin-top:20px;">Escolha o dia</h2>
       <div id="pb-days" style="display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;"></div>
 
       <h2 style="margin-top:16px;">Horários disponíveis</h2>
       <div id="pb-slots" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+
+      <div id="pb-total" style="display:none;margin-top:16px;padding:12px;border-radius:12px;background:var(--pine-soft);text-align:center;font-weight:700;"></div>
 
       <div id="pb-form" style="display:none;margin-top:22px;">
         <label for="pb-nome-cliente">Seu nome</label>
@@ -317,6 +322,8 @@
       <div id="pb-success" style="display:none;margin-top:20px;padding:16px;border-radius:12px;background:var(--pine);color:#fff;text-align:center;">
         <p style="margin:0;font-weight:600;">Agendamento confirmado! ✅</p>
         <p style="margin:6px 0 0;font-size:13px;">A barbearia vai te aguardar no horário combinado.</p>
+        <div id="pb-qr-box" style="display:flex;justify-content:center;margin:12px auto 8px;"></div>
+        <button class="btn small" id="btn-copy-pix-public" style="width:100%;display:none;">Copiar código Pix</button>
       </div>
     </div>
   </div>
@@ -493,6 +500,9 @@
       <label for="bs-endereco">Endereço</label>
       <input type="text" id="bs-endereco" placeholder="Rua, número, bairro" />
 
+      <label for="bs-pix">Telefone Pix da barbearia (com DDD, sem +55)</label>
+      <input type="text" id="bs-pix" placeholder="11999999999" />
+
       <button class="btn primary block" id="btn-save-barbershop" style="margin-top:18px;">Salvar barbearia</button>
 
       <div id="bs-link-box" style="display:none;margin-top:14px;padding:12px;border-radius:12px;background:var(--pine);color:#fff;">
@@ -511,6 +521,21 @@
         <label for="sv-duracao">Duração (minutos)</label>
         <input type="text" id="sv-duracao" placeholder="30" />
         <button class="btn block" id="btn-add-service" style="margin-top:10px;">Adicionar serviço</button>
+      </div>
+
+      <h2 style="margin-top:26px;">Produtos</h2>
+      <div id="products-list"></div>
+      <div style="margin-top:10px;">
+        <label for="pd-foto">Foto do produto</label>
+        <input type="file" id="pd-foto" accept="image/*" capture="environment" />
+        <div id="pd-foto-preview" style="display:none;margin-top:8px;"><img id="pd-foto-preview-img" style="width:80px;height:80px;object-fit:cover;border-radius:10px;" /></div>
+        <label for="pd-nome">Nome do produto</label>
+        <input type="text" id="pd-nome" placeholder="Ex: Pomada modeladora" />
+        <label for="pd-preco">Preço (R$)</label>
+        <input type="text" id="pd-preco" placeholder="45,00" />
+        <label for="pd-estoque">Quantidade em estoque</label>
+        <input type="text" id="pd-estoque" placeholder="10" />
+        <button class="btn block" id="btn-add-product" style="margin-top:10px;">Adicionar produto</button>
       </div>
 
       <h2 style="margin-top:26px;">Horário de funcionamento</h2>
@@ -750,10 +775,12 @@
         document.getElementById("bs-insta").value = state.barbershop.instagram || "";
         document.getElementById("bs-whats").value = state.barbershop.whatsapp || "";
         document.getElementById("bs-endereco").value = state.barbershop.address || "";
+        document.getElementById("bs-pix").value = state.barbershop.pix_key || "";
       }
       renderBarbershopLink();
       loadHours();
       loadBookings();
+      loadProducts();
       return loadServices();
     });
   }
@@ -772,7 +799,8 @@
       description: document.getElementById("bs-desc").value.trim(),
       instagram: document.getElementById("bs-insta").value.trim(),
       whatsapp: document.getElementById("bs-whats").value.trim(),
-      address: document.getElementById("bs-endereco").value.trim()
+      address: document.getElementById("bs-endereco").value.trim(),
+      pix_key: document.getElementById("bs-pix").value.trim()
     };
     if(state.barbershop){ payload.id = state.barbershop.id; }
     db.from("barbershops").upsert(payload, {onConflict:"id"}).select().then(function(res){
@@ -887,6 +915,105 @@
     });
   });
 
+  // ---- produtos ----
+  state.products = [];
+  var selectedProductFile = null;
+
+  document.getElementById("pd-foto").addEventListener("change", function(e){
+    var file = e.target.files[0];
+    if(!file) return;
+    selectedProductFile = file;
+    var reader = new FileReader();
+    reader.onload = function(ev){
+      document.getElementById("pd-foto-preview-img").src = ev.target.result;
+      document.getElementById("pd-foto-preview").style.display = "block";
+    };
+    reader.readAsDataURL(file);
+  });
+
+  function renderProductsList(){
+    var box = document.getElementById("products-list");
+    if(!state.products.length){
+      box.innerHTML = '<p style="font-size:12.5px;color:var(--ink-soft);">Nenhum produto cadastrado ainda.</p>';
+      return;
+    }
+    box.innerHTML = state.products.map(function(p){
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--line);">' +
+        '<div style="display:flex;gap:10px;align-items:center;">' +
+          (p.photo_url ? '<img src="'+p.photo_url+'" style="width:44px;height:44px;object-fit:cover;border-radius:8px;" />' : '') +
+          '<div><strong>'+p.name+'</strong><br><span style="font-size:12px;color:var(--ink-soft);">estoque: '+p.stock+'</span></div>' +
+        '</div>' +
+        '<div style="text-align:right;"><span>R$ '+Number(p.price).toFixed(2).replace(".",",")+'</span><br>' +
+        '<button class="btn small" data-remove-product="'+p.id+'" style="margin-top:4px;">Remover</button></div>' +
+        '</div>';
+    }).join("");
+    box.querySelectorAll("[data-remove-product]").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        var id = parseInt(btn.getAttribute("data-remove-product"),10);
+        db.from("products").delete().eq("id", id).then(function(res){
+          if(res.error){ alert("Erro ao remover: "+res.error.message); return; }
+          state.products = state.products.filter(function(p){ return p.id !== id; });
+          renderProductsList();
+        });
+      });
+    });
+  }
+
+  function loadProducts(){
+    if(!state.barbershop){ state.products = []; renderProductsList(); return Promise.resolve(); }
+    return db.from("products").select("*").eq("barbershop_id", state.barbershop.id).order("id").then(function(res){
+      if(res.error){ console.error(res.error); return; }
+      state.products = res.data;
+      renderProductsList();
+    });
+  }
+
+  document.getElementById("btn-add-product").addEventListener("click", function(){
+    if(!state.barbershop){
+      alert("Salve os dados da barbearia primeiro.");
+      return;
+    }
+    var nome = document.getElementById("pd-nome").value.trim();
+    var precoRaw = document.getElementById("pd-preco").value.trim();
+    var estoqueRaw = document.getElementById("pd-estoque").value.trim();
+    var preco = parseFloat(precoRaw.replace(/[^\d,.-]/g,"").replace(",", "."));
+    var estoque = parseInt(estoqueRaw, 10);
+    if(!nome || isNaN(preco) || isNaN(estoque)){
+      alert("Preencha nome, preço e estoque do produto.");
+      return;
+    }
+    var btn = document.getElementById("btn-add-product");
+    var original = btn.textContent;
+    btn.textContent = "Salvando...";
+
+    function finishInsert(photoUrl){
+      db.from("products").insert([{barbershop_id: state.barbershop.id, name:nome, price:preco, stock:estoque, photo_url:photoUrl}]).select().then(function(res){
+        btn.textContent = original;
+        if(res.error){ alert("Erro ao adicionar produto: "+res.error.message); return; }
+        state.products.push(res.data[0]);
+        renderProductsList();
+        document.getElementById("pd-nome").value = "";
+        document.getElementById("pd-preco").value = "";
+        document.getElementById("pd-estoque").value = "";
+        document.getElementById("pd-foto").value = "";
+        document.getElementById("pd-foto-preview").style.display = "none";
+        selectedProductFile = null;
+      });
+    }
+
+    if(selectedProductFile){
+      var fileExt = selectedProductFile.name.split(".").pop();
+      var filePath = state.barbershop.id + "/" + Date.now() + "." + fileExt;
+      db.storage.from("product-photos").upload(filePath, selectedProductFile).then(function(res){
+        if(res.error){ btn.textContent = original; alert("Erro ao enviar foto: "+res.error.message); return; }
+        var publicUrl = db.storage.from("product-photos").getPublicUrl(filePath).data.publicUrl;
+        finishInsert(publicUrl);
+      });
+    } else {
+      finishInsert(null);
+    }
+  });
+
   document.getElementById("btn-add-service").addEventListener("click", function(){
     if(!state.barbershop){
       alert("Salve os dados da barbearia primeiro.");
@@ -949,9 +1076,53 @@
         publicSelectedService = publicServices.find(function(s){ return s.id === id; });
         publicSelectedTime = null;
         renderPublicServices();
+        renderPublicTotal();
         renderPublicDays();
       });
     });
+  }
+
+  var publicProducts = [];
+  var publicSelectedProducts = [];
+
+  function renderPublicProducts(){
+    var box = document.getElementById("pb-products");
+    if(!publicProducts.length){
+      box.innerHTML = '<p style="font-size:12.5px;color:var(--ink-soft);">Nenhum produto disponível.</p>';
+      return;
+    }
+    box.innerHTML = publicProducts.map(function(p){
+      var checked = publicSelectedProducts.some(function(sp){ return sp.id === p.id; });
+      var out = p.stock <= 0;
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px;border-radius:12px;margin-bottom:8px;border:2px solid '+(checked ? "var(--pine)" : "var(--line)")+';opacity:'+(out ? "0.5" : "1")+';">' +
+        '<label style="display:flex;gap:10px;align-items:center;flex:1;">' +
+          '<input type="checkbox" data-pb-product="'+p.id+'" '+(checked ? "checked" : "")+' '+(out ? "disabled" : "")+' />' +
+          (p.photo_url ? '<img src="'+p.photo_url+'" style="width:36px;height:36px;object-fit:cover;border-radius:8px;" />' : '') +
+          '<span>'+p.name+(out ? ' (sem estoque)' : '')+'</span>' +
+        '</label>' +
+        '<strong>R$ '+Number(p.price).toFixed(2).replace(".",",")+'</strong>' +
+      '</div>';
+    }).join("");
+    box.querySelectorAll("[data-pb-product]").forEach(function(cb){
+      cb.addEventListener("change", function(){
+        var id = parseInt(cb.getAttribute("data-pb-product"),10);
+        var product = publicProducts.find(function(p){ return p.id === id; });
+        if(cb.checked){
+          publicSelectedProducts.push(product);
+        } else {
+          publicSelectedProducts = publicSelectedProducts.filter(function(p){ return p.id !== id; });
+        }
+        renderPublicTotal();
+      });
+    });
+  }
+
+  function renderPublicTotal(){
+    var box = document.getElementById("pb-total");
+    if(!publicSelectedService){ box.style.display = "none"; return; }
+    var total = Number(publicSelectedService.price) + publicSelectedProducts.reduce(function(sum,p){ return sum + Number(p.price); }, 0);
+    box.textContent = "Total: R$ " + total.toFixed(2).replace(".",",");
+    box.style.display = "block";
   }
 
   function renderPublicDays(){
@@ -1050,6 +1221,9 @@
       return;
     }
     document.getElementById("pb-err").style.display = "none";
+    var totalPrice = Number(publicSelectedService.price) + publicSelectedProducts.reduce(function(sum,p){ return sum + Number(p.price); }, 0);
+    var productsPayload = publicSelectedProducts.map(function(p){ return {id:p.id, name:p.name, price:p.price}; });
+
     db.from("bookings").insert([{
       barbershop_id: publicBarbershop.id,
       service_id: publicSelectedService.id,
@@ -1057,11 +1231,39 @@
       customer_phone: tel,
       date: publicSelectedDate,
       time: publicSelectedTime,
-      status: "pendente"
+      status: "pendente",
+      products: productsPayload,
+      total_price: totalPrice
     }]).then(function(res){
       if(res.error){ alert("Erro ao agendar: "+res.error.message); return; }
+
+      publicSelectedProducts.forEach(function(p){
+        db.from("products").update({stock: Math.max(0, p.stock - 1)}).eq("id", p.id).then(function(){});
+      });
+
       document.getElementById("pb-form").style.display = "none";
       document.getElementById("pb-success").style.display = "block";
+
+      if(publicBarbershop.pix_key){
+        var payload = buildPixPayload(publicBarbershop.pix_key, publicBarbershop.name, "SAO PAULO", totalPrice);
+        var qrBox = document.getElementById("pb-qr-box");
+        qrBox.innerHTML = "";
+        new QRCode(qrBox, {text: payload, width:140, height:140});
+        var copyBtn = document.getElementById("btn-copy-pix-public");
+        copyBtn.style.display = "block";
+        copyBtn.setAttribute("data-payload", payload);
+      }
+    });
+  });
+
+  document.getElementById("btn-copy-pix-public").addEventListener("click", function(){
+    var payload = this.getAttribute("data-payload");
+    if(!payload) return;
+    navigator.clipboard.writeText(payload).then(function(){
+      var btn = document.getElementById("btn-copy-pix-public");
+      var original = btn.textContent;
+      btn.textContent = "Copiado!";
+      setTimeout(function(){ btn.textContent = original; }, 1200);
     });
   });
 
@@ -1080,13 +1282,16 @@
 
       Promise.all([
         db.from("services").select("*").eq("barbershop_id", publicBarbershop.id).order("id"),
-        db.from("business_hours").select("*").eq("barbershop_id", publicBarbershop.id)
+        db.from("business_hours").select("*").eq("barbershop_id", publicBarbershop.id),
+        db.from("products").select("*").eq("barbershop_id", publicBarbershop.id).order("id")
       ]).then(function(results){
         publicServices = results[0].data || [];
         publicHours = results[1].data || [];
+        publicProducts = results[2].data || [];
         document.getElementById("public-loading").style.display = "none";
         document.getElementById("public-content").style.display = "block";
         renderPublicServices();
+        renderPublicProducts();
         renderPublicDays();
       });
     });
