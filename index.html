@@ -427,6 +427,15 @@
       <div class="card" id="bookings-list"></div>
 
       <div class="card" style="margin-top:18px;">
+        <p style="font-weight:500;font-size:14.5px;margin-bottom:6px;">Bloquear horário</p>
+        <label for="block-date" style="margin-top:0;">Data</label>
+        <input type="date" id="block-date" />
+        <label for="block-time">Horário</label>
+        <input type="time" id="block-time" />
+        <button class="btn block" id="btn-block-time" style="margin-top:10px;">Bloquear</button>
+      </div>
+
+      <div class="card" style="margin-top:18px;">
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <span style="font-weight:500;font-size:14.5px;">Status de hoje</span>
           <span class="status-pill open" id="agenda-pill">Aberta</span>
@@ -1449,6 +1458,15 @@
       return;
     }
     box.innerHTML = list.map(function(b){
+      if(b.status === "bloqueado"){
+        return '<div style="padding:10px 0;border-bottom:1px solid var(--line);">' +
+          '<div style="display:flex;justify-content:space-between;">' +
+            '<strong>'+b.time+' — Horário bloqueado</strong>' +
+          '</div>' +
+          '<div style="font-size:12.5px;color:var(--ink-soft);">'+b.date+'</div>' +
+          '<button class="btn small" data-unblock="'+b.id+'" style="margin-top:6px;">Desbloquear</button>' +
+        '</div>';
+      }
       var svc = b.services ? b.services.name : "Serviço";
       var price = b.services ? Number(b.services.price).toFixed(2).replace(".",",") : "0,00";
       var statusColor = b.status === "confirmado" ? "var(--pine)" : (b.status === "cancelado" ? "var(--danger)" : "var(--ink-soft)");
@@ -1459,8 +1477,9 @@
         '</div>' +
         '<div style="font-size:12.5px;color:var(--ink-soft);">'+svc+' • R$ '+price+' • '+b.date+' • '+b.customer_phone+'</div>' +
         (b.status !== "cancelado" ? (
-          '<div style="display:flex;gap:8px;margin-top:6px;">' +
+          '<div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;">' +
             (b.status !== "confirmado" ? '<button class="btn small" data-confirm-booking="'+b.id+'">Confirmar</button>' : "") +
+            '<button class="btn small" data-reschedule-booking="'+b.id+'">Remarcar</button>' +
             '<button class="btn small" data-cancel-booking="'+b.id+'">Cancelar</button>' +
           '</div>'
         ) : "") +
@@ -1474,6 +1493,28 @@
     box.querySelectorAll("[data-cancel-booking]").forEach(function(btn){
       btn.addEventListener("click", function(){
         updateBookingStatus(parseInt(btn.getAttribute("data-cancel-booking"),10), "cancelado");
+      });
+    });
+    box.querySelectorAll("[data-unblock]").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        var id = parseInt(btn.getAttribute("data-unblock"),10);
+        db.from("bookings").delete().eq("id", id).then(function(res){
+          if(res.error){ alert("Erro: "+res.error.message); return; }
+          loadBookings();
+        });
+      });
+    });
+    box.querySelectorAll("[data-reschedule-booking]").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        var id = parseInt(btn.getAttribute("data-reschedule-booking"),10);
+        var newDate = window.prompt("Nova data (AAAA-MM-DD):");
+        if(!newDate) return;
+        var newTime = window.prompt("Novo horário (HH:MM):");
+        if(!newTime) return;
+        db.from("bookings").update({date:newDate, time:newTime}).eq("id", id).then(function(res){
+          if(res.error){ alert("Erro ao remarcar: "+res.error.message); return; }
+          loadBookings();
+        });
       });
     });
   }
@@ -1503,6 +1544,33 @@
       document.getElementById("dash-revenue").textContent = "R$ " + revenue.toFixed(2).replace(".",",");
     });
   }
+
+  document.getElementById("btn-block-time").addEventListener("click", function(){
+    if(!state.barbershop){
+      alert("Salve os dados da barbearia primeiro.");
+      return;
+    }
+    var date = document.getElementById("block-date").value;
+    var time = document.getElementById("block-time").value;
+    if(!date || !time){
+      alert("Escolha data e horário.");
+      return;
+    }
+    db.from("bookings").insert([{
+      barbershop_id: state.barbershop.id,
+      service_id: null,
+      customer_name: "Bloqueado",
+      customer_phone: "",
+      date: date,
+      time: time,
+      status: "bloqueado"
+    }]).then(function(res){
+      if(res.error){ alert("Erro ao bloquear: "+res.error.message); return; }
+      document.getElementById("block-date").value = "";
+      document.getElementById("block-time").value = "";
+      loadBookings();
+    });
+  });
 
   document.getElementById("btn-save-perfil").addEventListener("click", function(){
     var btn = document.getElementById("btn-save-perfil");
